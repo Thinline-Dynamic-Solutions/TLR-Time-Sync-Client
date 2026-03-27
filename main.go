@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -339,41 +340,101 @@ func main() {
 
 	switch cmd {
 	case "install":
-		if err := service.Control(svc, "install"); err != nil {
-			log.Fatalf("install failed: %v", err)
-		}
-		log.Println("Service installed.")
-		if err := service.Control(svc, "start"); err != nil {
-			log.Fatalf("start after install failed: %v", err)
-		}
-		log.Println("Service started. It will now start automatically at boot.")
+		installService(svc)
+		waitForKey()
 
 	case "uninstall":
-		// Stop first (ignore error if already stopped).
 		_ = service.Control(svc, "stop")
 		if err := service.Control(svc, "uninstall"); err != nil {
-			log.Fatalf("uninstall failed: %v", err)
+			fmt.Println("Uninstall failed:", err)
+			waitForKey()
+			os.Exit(1)
 		}
-		log.Println("Service uninstalled.")
+		fmt.Println("TLR Time Sync service removed.")
+		waitForKey()
 
 	case "start":
 		if err := service.Control(svc, "start"); err != nil {
-			log.Fatalf("start failed: %v", err)
+			fmt.Println("Start failed:", err)
+			waitForKey()
+			os.Exit(1)
 		}
-		log.Println("Service started.")
+		fmt.Println("Service started.")
+		waitForKey()
 
 	case "stop":
 		if err := service.Control(svc, "stop"); err != nil {
-			log.Fatalf("stop failed: %v", err)
+			fmt.Println("Stop failed:", err)
+			waitForKey()
+			os.Exit(1)
 		}
-		log.Println("Service stopped.")
+		fmt.Println("Service stopped.")
+		waitForKey()
 
 	default:
-		// No command — either the service manager launched us, or the user
-		// passed "run" explicitly for foreground/debug mode.
-		if err := svc.Run(); err != nil {
-			log.Fatalf("service run error: %v", err)
+		if service.Interactive() {
+			// User double-clicked (or ran from a terminal) — auto-install.
+			if needsElevation() {
+				fmt.Println("Requesting administrator privileges...")
+				if err := relaunchAsAdmin(*configPath); err != nil {
+					fmt.Println("Could not request elevation:", err)
+					fmt.Println("Please right-click the exe and choose 'Run as administrator'.")
+					waitForKey()
+					os.Exit(1)
+				}
+				// The elevated process will handle the install; exit this one.
+				return
+			}
+			installService(svc)
+			waitForKey()
+		} else {
+			// Launched by the service manager — run normally.
+			if err := svc.Run(); err != nil {
+				log.Fatalf("service run error: %v", err)
+			}
 		}
+	}
+}
+
+// installService installs and starts the service, printing a user-friendly
+// result. Called both from the "install" command and the double-click path.
+func installService(svc service.Service) {
+	if err := service.Control(svc, "install"); err != nil {
+		// Already installed — just ensure it's running.
+		if strings.Contains(err.Error(), "already") || strings.Contains(err.Error(), "exists") {
+			fmt.Println("TLR Time Sync is already installed as a service.")
+			_ = service.Control(svc, "start")
+			fmt.Println("Service started (or was already running).")
+			return
+		}
+		fmt.Println("Install failed:", err)
+		return
+	}
+	if err := service.Control(svc, "start"); err != nil {
+		fmt.Println("Installed but could not start:", err)
+		return
+	}
+	fmt.Println("--------------------------------------------------")
+	fmt.Println("  TLR Time Sync installed as a Windows service.")
+	fmt.Println("  It will start automatically at every boot.")
+	fmt.Println("--------------------------------------------------")
+	fmt.Println("")
+	fmt.Println("  You can close this window.")
+}
+
+// waitForKey pauses until the user presses Enter (or 30 s elapses), so a
+// console window opened by double-clicking stays visible long enough to read.
+func waitForKey() {
+	fmt.Println("")
+	fmt.Print("Press Enter to close...")
+	done := make(chan struct{})
+	go func() {
+		bufio.NewReader(os.Stdin).ReadString('\n')
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
 	}
 }
 
