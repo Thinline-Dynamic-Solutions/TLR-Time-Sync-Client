@@ -30,14 +30,31 @@ build() {
     echo -e "${BLUE}Building: ${GOOS}/${GOARCH} (${LABEL})${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-    local EXT=""
-    [ "$GOOS" = "windows" ] && EXT=".exe"
+    local STAGING=$(mktemp -d)
+    trap "rm -rf '$STAGING'" RETURN
 
-    local OUT="${RELEASES_DIR}/tlr-time-sync-${GOOS}-${GOARCH}-v${VERSION}${EXT}"
+    if [ "$GOOS" = "windows" ]; then
+        local BIN="$STAGING/tlr-time-sync.exe"
+        local ARCHIVE="${RELEASES_DIR}/tlr-time-sync-${GOOS}-${GOARCH}-v${VERSION}.zip"
 
-    GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "$OUT" .
+        GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BIN" .
+        cp tlr-time-sync.ini "$STAGING/"
+        cp README.md "$STAGING/"
 
-    echo -e "${GREEN}  ✓ ${OUT}${NC}"
+        (cd "$STAGING" && zip -r - .) > "$ARCHIVE"
+    else
+        local BIN="$STAGING/tlr-time-sync"
+        local ARCHIVE="${RELEASES_DIR}/tlr-time-sync-${GOOS}-${GOARCH}-v${VERSION}.tar.gz"
+
+        GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BIN" .
+        chmod +x "$BIN"
+        cp tlr-time-sync.ini "$STAGING/"
+        cp README.md "$STAGING/"
+
+        tar -czf "$ARCHIVE" -C "$STAGING" .
+    fi
+
+    echo -e "${GREEN}  ✓ $(basename $ARCHIVE)${NC}"
     echo ""
 }
 
@@ -46,24 +63,35 @@ build windows amd64  "64-bit"
 build windows arm64  "ARM64"
 
 # Linux
-build linux   amd64  "64-bit"
-build linux   arm64  "ARM64"
+build linux   amd64   "64-bit"
+build linux   arm64   "ARM64"
 build linux   riscv64 "RISC-V 64"
 
 # macOS
 build darwin  amd64  "Intel"
 build darwin  arm64  "Apple Silicon"
 
-# Create macOS universal binary if lipo is available
+# macOS universal binary — combine amd64 + arm64 then repackage
 if [[ "$OSTYPE" == "darwin"* ]] && command -v lipo &>/dev/null; then
     echo -e "${YELLOW}Creating macOS universal binary...${NC}"
-    UNIVERSAL="${RELEASES_DIR}/tlr-time-sync-darwin-universal-v${VERSION}"
-    lipo -create \
-        "${RELEASES_DIR}/tlr-time-sync-darwin-amd64-v${VERSION}" \
-        "${RELEASES_DIR}/tlr-time-sync-darwin-arm64-v${VERSION}" \
-        -output "$UNIVERSAL"
-    chmod +x "$UNIVERSAL"
-    echo -e "${GREEN}  ✓ ${UNIVERSAL}${NC}"
+
+    STAGING_AMD=$(mktemp -d)
+    STAGING_ARM=$(mktemp -d)
+    STAGING_UNI=$(mktemp -d)
+    trap "rm -rf '$STAGING_AMD' '$STAGING_ARM' '$STAGING_UNI'" EXIT
+
+    # Extract the two archives to get the binaries
+    tar -xzf "${RELEASES_DIR}/tlr-time-sync-darwin-amd64-v${VERSION}.tar.gz" -C "$STAGING_AMD"
+    tar -xzf "${RELEASES_DIR}/tlr-time-sync-darwin-arm64-v${VERSION}.tar.gz" -C "$STAGING_ARM"
+
+    lipo -create "$STAGING_AMD/tlr-time-sync" "$STAGING_ARM/tlr-time-sync" -output "$STAGING_UNI/tlr-time-sync"
+    chmod +x "$STAGING_UNI/tlr-time-sync"
+    cp tlr-time-sync.ini "$STAGING_UNI/"
+    cp README.md "$STAGING_UNI/"
+
+    UNIVERSAL="${RELEASES_DIR}/tlr-time-sync-darwin-universal-v${VERSION}.tar.gz"
+    tar -czf "$UNIVERSAL" -C "$STAGING_UNI" .
+    echo -e "${GREEN}  ✓ $(basename $UNIVERSAL)${NC}"
     echo ""
 fi
 
@@ -76,7 +104,7 @@ echo -e "${GREEN}Build Complete!${NC}"
 echo -e "${GREEN}════════════════════════════════════════${NC}"
 echo ""
 echo "Artifacts in ${RELEASES_DIR}/:"
-ls -1 "$RELEASES_DIR"/tlr-time-sync-* | while read f; do
+ls -1 "$RELEASES_DIR"/tlr-time-sync-*-v${VERSION}.* 2>/dev/null | while read f; do
     SIZE=$(du -sh "$f" | cut -f1)
     echo "  ✓ $(basename $f)  (${SIZE})"
 done
