@@ -1,0 +1,12 @@
+# Built binaries
+tlr-time-sync
+tlr-time-sync.exe
+tlr-time-sync-linux
+tlr-time-sync-*
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
