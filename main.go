@@ -302,10 +302,65 @@ func main() {
 	configPath := flag.String("config", "tlr-time-sync.ini", "path to config file")
 	flag.Parse()
 
-	cfg, err := loadConfig(*configPath)
-	if err != nil {
-		log.Fatalf("config error: %v", err)
+	args := flag.Args()
+	cmd := ""
+	if len(args) > 0 {
+		cmd = args[0]
 	}
+
+	// For the double-click / interactive path we handle config errors ourselves
+	// so we can show a readable message before the window closes.
+	// For all other paths, load config and fatal on error as normal.
+	loadCfgOrExit := func() *config {
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			fmt.Println("Configuration error:", err)
+			fmt.Printf("Make sure %s exists and contains a valid server URL.\n", *configPath)
+			waitForKey()
+			os.Exit(1)
+		}
+		return cfg
+	}
+
+	// uninstall / start / stop don't need the config at all.
+	switch cmd {
+	case "uninstall":
+		svc, _ := service.New(&program{}, &service.Config{Name: "TLRTimeSync"})
+		_ = service.Control(svc, "stop")
+		if err := service.Control(svc, "uninstall"); err != nil {
+			fmt.Println("Uninstall failed:", err)
+			waitForKey()
+			os.Exit(1)
+		}
+		fmt.Println("TLR Time Sync service removed.")
+		waitForKey()
+		return
+
+	case "start":
+		svc, _ := service.New(&program{}, &service.Config{Name: "TLRTimeSync"})
+		if err := service.Control(svc, "start"); err != nil {
+			fmt.Println("Start failed:", err)
+			waitForKey()
+			os.Exit(1)
+		}
+		fmt.Println("Service started.")
+		waitForKey()
+		return
+
+	case "stop":
+		svc, _ := service.New(&program{}, &service.Config{Name: "TLRTimeSync"})
+		if err := service.Control(svc, "stop"); err != nil {
+			fmt.Println("Stop failed:", err)
+			waitForKey()
+			os.Exit(1)
+		}
+		fmt.Println("Service stopped.")
+		waitForKey()
+		return
+	}
+
+	// All remaining paths (install, default/double-click, run-as-service) need config.
+	cfg := loadCfgOrExit()
 
 	svcConfig := &service.Config{
 		Name:        "TLRTimeSync",
@@ -321,54 +376,20 @@ func main() {
 
 	svc, err := service.New(prg, svcConfig)
 	if err != nil {
-		log.Fatalf("service setup failed: %v", err)
+		fmt.Println("Service setup failed:", err)
+		waitForKey()
+		os.Exit(1)
 	}
 
-	// Route log output through the service logger when running as a service
-	// (Windows Event Log / journald / syslog), or stderr when in foreground.
-	logger, err := svc.Logger(nil)
-	if err == nil {
+	// Route log output through the service logger (Event Log / journald / syslog)
+	// when running as a service, or stderr when in the foreground.
+	if logger, err := svc.Logger(nil); err == nil {
 		log.SetOutput(&serviceLogWriter{logger})
-	}
-
-	// Handle control commands: install / uninstall / start / stop / run
-	args := flag.Args()
-	cmd := ""
-	if len(args) > 0 {
-		cmd = args[0]
 	}
 
 	switch cmd {
 	case "install":
 		installService(svc)
-		waitForKey()
-
-	case "uninstall":
-		_ = service.Control(svc, "stop")
-		if err := service.Control(svc, "uninstall"); err != nil {
-			fmt.Println("Uninstall failed:", err)
-			waitForKey()
-			os.Exit(1)
-		}
-		fmt.Println("TLR Time Sync service removed.")
-		waitForKey()
-
-	case "start":
-		if err := service.Control(svc, "start"); err != nil {
-			fmt.Println("Start failed:", err)
-			waitForKey()
-			os.Exit(1)
-		}
-		fmt.Println("Service started.")
-		waitForKey()
-
-	case "stop":
-		if err := service.Control(svc, "stop"); err != nil {
-			fmt.Println("Stop failed:", err)
-			waitForKey()
-			os.Exit(1)
-		}
-		fmt.Println("Service stopped.")
 		waitForKey()
 
 	default:
@@ -382,7 +403,7 @@ func main() {
 					waitForKey()
 					os.Exit(1)
 				}
-				// The elevated process will handle the install; exit this one.
+				// Elevated process will handle the install; this one can exit.
 				return
 			}
 			installService(svc)

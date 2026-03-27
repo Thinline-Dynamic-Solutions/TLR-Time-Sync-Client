@@ -49,24 +49,31 @@ GOOS=linux GOARCH=amd64 go build -o tlr-time-sync-linux .
 
 ## Installing as a system service
 
-The binary manages its own service registration. Run these commands **once** with
-elevated privileges — after that the service starts automatically at every boot
-with no further prompts.
+### Windows — double-click install
 
-### Windows (run as Administrator)
+1. Extract the zip so `tlr-time-sync.exe` and `tlr-time-sync.ini` are in the **same folder**
+2. Edit `tlr-time-sync.ini` and set your TLR server URL
+3. **Double-click `tlr-time-sync.exe`**
 
-```bat
-tlr-time-sync.exe install -config C:\ProgramData\TLRTimeSync\tlr-time-sync.ini
+Windows will show a UAC prompt ("Allow this app to make changes?"). Click **Yes**.
+A console window opens and shows:
+
+```
+--------------------------------------------------
+  TLR Time Sync installed as a Windows service.
+  It will start automatically at every boot.
+--------------------------------------------------
+
+  You can close this window.
+
+Press Enter to close...
 ```
 
-Installs and immediately starts a **Windows Service** (`TLRTimeSync`) running as
-`LocalSystem`, which has native rights to set the system clock — no UAC prompt
-at runtime, ever.
+That's it. The service (`TLRTimeSync`) is now running and will start automatically on every boot. You never need to run the exe again.
 
+**To remove the service**, open an Administrator command prompt and run:
 ```bat
-tlr-time-sync.exe uninstall   # stop and remove
-tlr-time-sync.exe stop        # stop without removing
-tlr-time-sync.exe start       # restart after a stop
+tlr-time-sync.exe uninstall
 ```
 
 ### Linux (run as root)
@@ -92,13 +99,10 @@ sudo tlr-time-sync install -config /etc/tlr-time-sync.ini
 
 Generates a **LaunchDaemon** plist and loads it — runs as root on boot.
 
-## Running in the foreground (debug)
+## Running in the foreground (debug / testing)
 
 ```bash
-# Foreground mode — logs go to stderr, Ctrl-C to stop
-sudo ./tlr-time-sync -config tlr-time-sync.ini run
-
-# Or just omit the command (same thing)
+# No install needed — runs in terminal and logs to stderr, Ctrl-C to stop
 sudo ./tlr-time-sync -config tlr-time-sync.ini
 ```
 
