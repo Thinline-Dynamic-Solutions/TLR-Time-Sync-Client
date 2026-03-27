@@ -33,6 +33,8 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+const Version = "1.0.0"
+
 // ── config ────────────────────────────────────────────────────────────────────
 
 type config struct {
