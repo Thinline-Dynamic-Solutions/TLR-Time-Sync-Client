@@ -26,6 +26,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -298,8 +299,21 @@ func (p *program) Stop(s service.Service) error {
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
+// exeDir returns the directory containing the running executable.
+// Used to resolve relative config paths so the service (which runs as
+// LocalSystem with CWD = C:\Windows\System32) can still find the ini file.
+func exeDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exe)
+}
+
 func main() {
-	configPath := flag.String("config", "tlr-time-sync.ini", "path to config file")
+	// Default config path is next to the exe, not the working directory.
+	defaultConfig := filepath.Join(exeDir(), "tlr-time-sync.ini")
+	configPath := flag.String("config", defaultConfig, "path to config file")
 	flag.Parse()
 
 	args := flag.Args()
